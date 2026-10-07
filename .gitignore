@@ -3,4 +3,9 @@
 __pycache__/
 *.pyc
 streamlit.log
+research_agent.log
+*.log
 reports/
+.memory_db/
+.pytest_cache/
+.pytest_missing_db/

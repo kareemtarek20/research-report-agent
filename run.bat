@@ -1,5 +1,5 @@
 @echo off
-REM Starts the Research & Report Agent web UI and opens it in your browser.
+REM Starts the Research Intelligence Agent web UI and opens it in your browser.
 cd /d "%~dp0"
 
 if not exist ".venv\Scripts\python.exe" (
