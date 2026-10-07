@@ -20,6 +20,14 @@ def route_researchers(state: dict) -> list[str]:
     return active or ["web_researcher"]
 
 
+def route_after_plan(state: dict):
+    """Uploaded documents are searched FIRST — before any web researcher —
+    and only once (later gap-loop rounds skip the document node)."""
+    if state.get("documents") and not state.get("doc_findings"):
+        return "document_researcher"
+    return route_researchers(state)
+
+
 def after_critic(state: dict) -> str:
     """Route to more research only for high-priority gaps, within the round
     cap. Quick modes and the hard MAX rounds always go to the writer."""

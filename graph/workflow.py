@@ -3,6 +3,8 @@ Research Intelligence Agent — LangGraph workflow.
 
     USER QUESTION
       -> planner
+      -> [uploaded docs?] DOCUMENT RESEARCHER (searches + extracts from the
+         user's files first, before any web call)
       -> FAN-OUT: web / academic / technical researchers (real parallel
          supersteps; each writes its own findings channel)
       -> evidence extraction + quality scoring (convergence)
@@ -22,12 +24,13 @@ import time
 from langgraph.graph import StateGraph, END
 
 from graph.state import ResearchState, ReportMetadata
-from graph.routing import route_researchers, after_critic, after_report_quality
+from graph.routing import route_after_plan, route_researchers, after_critic, after_report_quality
 from llm_client import usage_meter
 from logging_setup import setup_logging, NodeTimer
 from research.modes import get_mode
 
 from agents.planner import plan_node
+from agents.document_researcher import document_node
 from agents.web_researcher import web_researcher_node
 from agents.academic_researcher import academic_researcher_node
 from agents.technical_researcher import technical_researcher_node
@@ -99,6 +102,7 @@ def build_graph(stats: dict):
 
     timed_nodes = {
         "plan": plan_node,
+        "document_researcher": document_node,
         "web_researcher": web_researcher_node,
         "academic_researcher": academic_researcher_node,
         "technical_researcher": technical_researcher_node,
@@ -121,7 +125,10 @@ def build_graph(stats: dict):
                                          lambda s: finalize_node(s, stats)))
 
     graph.set_entry_point("plan")
-    graph.add_conditional_edges("plan", route_researchers,
+    graph.add_conditional_edges("plan", route_after_plan,
+                                ["document_researcher", "web_researcher",
+                                 "academic_researcher", "technical_researcher"])
+    graph.add_conditional_edges("document_researcher", route_researchers,
                                 ["web_researcher", "academic_researcher",
                                  "technical_researcher"])
     graph.add_edge("web_researcher", "evidence")

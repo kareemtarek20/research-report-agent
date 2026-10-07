@@ -3,7 +3,8 @@ run, failure handling, document ingestion, revision cap. No API keys needed."""
 
 import pytest
 
-from graph.routing import route_researchers, after_critic, after_report_quality
+from graph.routing import (route_researchers, route_after_plan, after_critic,
+                           after_report_quality)
 from graph.workflow import run_agent, build_graph
 from research.modes import get_mode
 
@@ -33,6 +34,22 @@ def test_fanout_parallel_three():
 
 def test_fanout_always_returns_something():
     assert route_researchers({"mode": "deep", "tasks": []}) == ["web_researcher"]
+
+
+def test_route_after_plan_sends_documents_first():
+    docs = [{"url": "upload://a.txt#chunk0"}]
+    tasks = [{"researcher": "web"}, {"researcher": "academic"},
+             {"researcher": "technical"}]
+    assert route_after_plan({"mode": "quick", "tasks": [], "documents": docs,
+                             "doc_findings": []}) == "document_researcher"
+    # after the document node ran, later rounds fan out to researchers
+    assert sorted(route_after_plan({"mode": "deep", "tasks": tasks,
+                                    "documents": docs,
+                                    "doc_findings": docs})) == [
+        "academic_researcher", "technical_researcher", "web_researcher"]
+    # no documents -> never routes to the document node
+    assert route_after_plan({"mode": "quick", "tasks": [], "documents": [],
+                             "doc_findings": []}) == ["web_researcher"]
 
 
 def test_critic_loops_only_for_high_gaps():
@@ -214,6 +231,21 @@ def test_uploaded_documents_become_labeled_sources(patched_pipeline):
     assert "user_document" in types
     doc_src = [s for s in final["sources"] if s["source_type"] == "user_document"]
     assert doc_src[0]["url"].startswith("upload://")
+
+
+def test_uploaded_documents_are_searched_before_the_web(patched_pipeline):
+    final = drain("What VRAM do our lab machines have?", mode="deep",
+                  documents=[("mynotes.txt",
+                              b"Our lab machines have 8GB VRAM. " * 20)])
+    log = final["log"]
+    doc_i = next(i for i, line in enumerate(log)
+                 if line.startswith("📄 Document researcher"))
+    web_i = next(i for i, line in enumerate(log) if "Web researcher" in line)
+    assert doc_i < web_i, "documents must be searched before any web call"
+    # and their evidence was extracted in that first pass
+    assert any("evidence items from your documents" in line for line in log)
+    doc_src = [s for s in final["sources"] if s["source_type"] == "user_document"]
+    assert doc_src and doc_src[0]["source_id"] == "S1"  # registered first
 
 
 def test_evidence_caps_enforced(patched_pipeline, monkeypatch):

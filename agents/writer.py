@@ -91,11 +91,18 @@ def writer_node(state: dict) -> dict:
         tag = "SUPPORTED" if flag else "WEAK"
         if fc_status:
             tag = f"FACT-CHECK: {fc_status.upper()}"
+        if e.get("source_type") == "user_document":
+            tag += "; USER-DOC"
         ev_lines.append(
             f"- [{e.get('source_id', '?')}] (conf {e.get('confidence', 0):.2f}; {tag}) "
             f"{e.get('claim', '')}\n    passage: {e.get('supporting_passage', '')[:200]}")
     evidence_block = "\n".join(ev_lines) or "(no evidence — write an honest " \
         "limitations-focused report)"
+    if any(e.get("source_type") == "user_document" for e in evidence):
+        evidence_block = (
+            "NOTE: the user UPLOADED the sources tagged USER-DOC. Answer from "
+            "those first and cite them prominently; web/academic sources only "
+            "supplement or cross-check them.\n") + evidence_block
 
     fc_block = "\n".join(
         f"- [{fc.get('status')}] {fc.get('claim', '')[:120]} — {fc.get('explanation', '')[:160]}"

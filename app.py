@@ -14,6 +14,7 @@ import streamlit as st
 
 from config import (LLM_MODEL, LLM_BASE_URL, TAVILY_API_KEY, MAX_RESEARCH_ROUNDS,
                     MAX_SOURCES, MAX_TOTAL_EVIDENCE, MAX_FACT_CHECKS,
+                    MAX_DOC_CHUNKS,
                     MAX_REPORT_REVISIONS)
 from graph.workflow import run_agent
 from research.modes import MODES
@@ -35,6 +36,7 @@ with st.sidebar:
         f"- **Max sources:** {MAX_SOURCES}\n"
         f"- **Max evidence items:** {MAX_TOTAL_EVIDENCE}\n"
         f"- **Claims re-verified:** {MAX_FACT_CHECKS}\n"
+        f"- **Uploaded doc chunks searched first:** {MAX_DOC_CHUNKS}\n"
         f"- **Report revisions:** {MAX_REPORT_REVISIONS}")
     st.divider()
     st.subheader("Status")
