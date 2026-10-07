@@ -10,7 +10,7 @@ import logging
 
 import requests
 
-from config import MAX_PAGE_CHARS
+from config import MAX_PAGE_CHARS, PAGE_READ_TIMEOUT_SECONDS
 
 log = logging.getLogger("agent.tools.reader")
 
@@ -20,7 +20,8 @@ def read_url(url: str, max_chars: int = MAX_PAGE_CHARS) -> str:
     if not url or not url.startswith("http"):
         return ""
     try:
-        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"},
+                            timeout=PAGE_READ_TIMEOUT_SECONDS)
         resp.raise_for_status()
     except requests.RequestException as e:
         log.warning("could not fetch %s: %s", url, e)

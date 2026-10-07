@@ -68,6 +68,14 @@ MAX_PAGE_CHARS = _int_env("MAX_PAGE_CHARS", 6000)              # text fed per pa
 MAX_FACT_CHECKS = _int_env("MAX_FACT_CHECKS", 8)               # claims independently re-verified
 MAX_REPORT_REVISIONS = _int_env("MAX_REPORT_REVISIONS", 1)     # 0 disables the revision loop
 
+# --- Speed (Phases A-C optimization) ---
+# Worker threads for LLM-bound (evidence/fact-check) and IO-bound (page read)
+# fan-out. Keep at 3 on rate-limited free tiers.
+RESEARCH_WORKERS = _int_env("RESEARCH_WORKERS", 3)
+PAGE_READ_TIMEOUT_SECONDS = _int_env("PAGE_READ_TIMEOUT_SECONDS", 8)
+# Sources scoring below this (weak tier) are not deep-extracted unless needed.
+EXTRACTION_MIN_QUALITY = _float_env("EXTRACTION_MIN_QUALITY", 0.40)
+
 # --- Report quality thresholds (Phase 12) ---
 QUALITY_EVIDENCE_COVERAGE = _float_env("QUALITY_EVIDENCE_COVERAGE", 0.60)
 QUALITY_CITATION_COVERAGE = _float_env("QUALITY_CITATION_COVERAGE", 0.70)

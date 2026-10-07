@@ -7,7 +7,9 @@ parallelism safe (no two parallel nodes write the same channel).
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
+from config import RESEARCH_WORKERS
 from research.modes import get_mode
 from tools.web_search import web_search
 from tools.academic_search import academic_search
@@ -51,8 +53,9 @@ def run_researcher(kind: str, state: dict) -> dict:
             results = []
         lines.append(f"{label}: \"{query}\" → {len(results)} results")
 
-        for r in results[:PAGES_PER_QUERY]:
-            content = read_url(r.get("url", ""))
+        pages = results[:PAGES_PER_QUERY]
+        contents = _read_pages(pages)
+        for r, content in zip(pages, contents):
             if not content and r.get("snippet"):
                 content = r["snippet"]  # abstracts count as content for papers
             if not content:
@@ -73,3 +76,22 @@ def run_researcher(kind: str, state: dict) -> dict:
     lines.append(f"   → {len(findings)} pages collected")
     log.info("researcher=%s findings=%s", kind, len(findings))
     return {out_key: findings, "log": lines}
+
+
+def _read_pages(pages: list[dict]) -> list[str]:
+    """Fetch several result pages concurrently (IO-bound). Order preserved;
+    a failing page yields '' and never breaks the batch."""
+    if not pages:
+        return []
+    if len(pages) == 1 or RESEARCH_WORKERS <= 1:
+        return [read_url(p.get("url", "")) for p in pages]
+
+    def _safe(p):
+        try:
+            return read_url(p.get("url", ""))
+        except Exception as e:
+            log.warning("read_url failed for %s: %s", p.get("url", "?"), e)
+            return ""
+
+    with ThreadPoolExecutor(max_workers=min(RESEARCH_WORKERS, len(pages))) as ex:
+        return list(ex.map(_safe, pages))

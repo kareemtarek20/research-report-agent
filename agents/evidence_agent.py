@@ -8,8 +8,10 @@ research memory, and enforces hard caps on sources and evidence count.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
-from config import MAX_SOURCES, MAX_TOTAL_EVIDENCE, MAX_EVIDENCE_PER_SOURCE
+from config import (MAX_SOURCES, MAX_TOTAL_EVIDENCE, MAX_EVIDENCE_PER_SOURCE,
+                    RESEARCH_WORKERS, EXTRACTION_MIN_QUALITY)
 from graph.state import Evidence
 from research.evidence import extract_evidence, dedupe_evidence
 from research.sources import findings_to_sources
@@ -43,23 +45,35 @@ def evidence_node(state: dict) -> dict:
     by_id = {s["source_id"]: s for s in sources}
     already_extracted = {e.get("source_id") for e in state.get("evidence", [])}
 
-    # 3. Extract structured evidence from each not-yet-processed source
+    # 3. Extract structured evidence from each not-yet-processed source,
+    #    concurrently (LLM-bound). Weak-tier web/technical sources are skipped
+    #    unless we need them for minimum coverage.
     new_evidence: list[dict] = []
     log_lines = [f"📚 Sources registry: {len(sources)} total"]
-    for src in sources:
-        if src["source_id"] in already_extracted:
-            continue
-        if src["source_type"] == "previous_research":
-            new_evidence.extend(_evidence_from_memory(src))
-            continue
-        content = _content_for(findings, src)
-        if not content:
-            content = src.get("snippet", "")
-        items = extract_evidence(src, content, question, tasks, MAX_EVIDENCE_PER_SOURCE)
-        if items:
-            new_evidence.extend(items)
-            log_lines.append(f"   {src['source_id']} ({src['quality_tier']}) → "
-                             f"{len(items)} evidence items")
+    pending = [s for s in sources if s["source_id"] not in already_extracted]
+    mem_sources = [s for s in pending if s["source_type"] == "previous_research"]
+    candidates = [s for s in pending if s["source_type"] != "previous_research"]
+    for src in mem_sources:
+        new_evidence.extend(_evidence_from_memory(src))
+
+    candidates.sort(key=lambda s: s.get("quality_score", 0), reverse=True)
+    extractable, skipped = _filter_weak(candidates)
+    if skipped:
+        log_lines.append(f"   ⏭️ skipped {len(skipped)} weak-tier sources "
+                         f"(quality < {EXTRACTION_MIN_QUALITY}) for extraction")
+    if extractable:
+        with ThreadPoolExecutor(max_workers=max(1, RESEARCH_WORKERS)) as ex:
+            batches = list(ex.map(
+                lambda src: extract_evidence(
+                    src,
+                    _content_for(findings, src) or src.get("snippet", ""),
+                    question, tasks, MAX_EVIDENCE_PER_SOURCE),
+                extractable))
+        for src, items in zip(extractable, batches):
+            if items:
+                new_evidence.extend(items)
+                log_lines.append(f"   {src['source_id']} ({src['quality_tier']}) → "
+                                 f"{len(items)} evidence items")
 
     # 4. Quality-score evidence and keep the best up to the hard cap
     scored = [_score_item(e, by_id.get(e.get("source_id", ""), {})) for e in new_evidence]
@@ -90,6 +104,23 @@ def _cap_sources(sources: list[dict]) -> list[dict]:
     kept = keep_high + rest[:room]
     kept.sort(key=lambda s: int(s["source_id"][1:]))
     return kept
+
+
+def _filter_weak(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(extractable, skipped). Weak-scoring web/technical sources don't get an
+    LLM extraction call — they stay registered for traceability. User docs and
+    academic sources are always extracted, and the N best sources are kept as
+    a floor even when weak so coverage never collapses to zero."""
+    floor = min(3, len(candidates))
+    keep, skip = [], []
+    for i, s in enumerate(candidates):
+        weak = (s.get("quality_score", 1.0) < EXTRACTION_MIN_QUALITY
+                and s.get("source_type") in ("web", "technical"))
+        if weak and i >= floor:
+            skip.append(s)
+        else:
+            keep.append(s)
+    return keep, skip
 
 
 def _content_for(findings: list[dict], source: dict) -> str:

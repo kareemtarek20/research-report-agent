@@ -182,8 +182,8 @@ def test_search_exception_does_not_kill_run(monkeypatch, fake_llm_payloads):
 
     final = drain("anything", mode="quick")
     assert final["report"]  # degraded but finished
-    assert "continuing" in " ".join(final["log"]).lower() or \
-        final["evidence"] == []
+    assert final["web_findings"] == [] and final["academic_findings"] == []
+    assert final["sources"] == []  # nothing could be retrieved, run still ended
 
 
 def test_llm_json_garbage_degrades_gracefully(monkeypatch, fake_llm_payloads,
@@ -221,3 +221,33 @@ def test_evidence_caps_enforced(patched_pipeline, monkeypatch):
     monkeypatch.setattr(ev_agent, "MAX_TOTAL_EVIDENCE", 1)
     final = drain("What VRAM?", mode="deep")
     assert len(final["evidence"]) <= 1 + 3  # cap applied after dedupe of rounds
+
+
+# --------------------------------------------------- speed optimizations --
+def test_weak_sources_skipped_but_floor_kept():
+    from agents.evidence_agent import _filter_weak
+    mk = lambda i, q, t="web": {"source_id": f"S{i}", "quality_score": q,
+                                "quality_tier": "weak" if q < 0.4 else "ok",
+                                "source_type": t}
+    cands = [mk(1, 0.9), mk(2, 0.3), mk(3, 0.2), mk(4, 0.1), mk(5, 0.1),
+             mk(6, 0.1, "user_document")]
+    keep, skip = _filter_weak(cands)
+    ids = {s["source_id"] for s in keep}
+    assert "S1" in ids and "S6" in ids          # good + user docs always kept
+    assert len(keep) >= 3                        # coverage floor of 3
+    assert all(s["source_id"] not in {"S4", "S5"} or s["source_type"] != "web"
+               for s in keep)                    # weakest webs past floor skipped
+    assert keep and skip
+
+
+def test_parallel_extraction_matches_serial(patched_pipeline):
+    """Concurrent extraction must not reorder or lose per-source results."""
+    final = drain("What VRAM does a 7B model need?", mode="deep")
+    src_ids = {s["source_id"] for s in final["sources"]}
+    assert {e["source_id"] for e in final["evidence"]} <= src_ids
+    assert final["evidence"], "extraction produced evidence under threads"
+
+
+def test_parallel_fact_checks_complete(patched_pipeline):
+    final = drain("What VRAM?", mode="deep")
+    assert all(fc.get("claim_hash") for fc in final["fact_checks"])

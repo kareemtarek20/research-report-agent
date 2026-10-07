@@ -1,11 +1,62 @@
 """Shared fixtures: canned fake LLM/search/reader so tests need no API keys."""
 
+import os
 import pathlib
 import sys
+
+# Isolation: tests must never touch the real vector DB, write log files, or
+# hit the network — override env BEFORE any project module imports.
+os.environ["ENABLE_MEMORY"] = "false"
+os.environ["DISABLE_LOG_FILE"] = "1"
+os.environ["LOG_LEVEL"] = "WARNING"
+# Even an UNPATCHED LLM call must stay offline: point at a dead local port
+# with zero retries so anything real fails instantly instead of using the
+# developer's actual key/quota.
+os.environ["LLM_API_KEY"] = "offline-test-key"
+os.environ["LLM_BASE_URL"] = "http://127.0.0.1:9/v1"
+os.environ["LLM_MAX_RETRIES"] = "0"
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import pytest
+
+
+class _BlockedRequests:
+    """Replacement `requests` module for tool modules: every call fails fast."""
+    RequestException = RuntimeError
+
+    def post(self, *a, **k):
+        raise RuntimeError("network blocked in tests")
+
+    def get(self, *a, **k):
+        raise RuntimeError("network blocked in tests")
+
+
+@pytest.fixture(autouse=True)
+def block_real_network(monkeypatch):
+    """Even UNPATCHED tool calls must stay offline — protects the developer's
+    API quota and keeps tests deterministic."""
+    import importlib
+    mods = [importlib.import_module(f"tools.{m}")
+            for m in ("web_search", "academic_search", "url_reader")]
+    for mod in mods:
+        monkeypatch.setattr(mod, "requests", _BlockedRequests())
+
+
+@pytest.fixture(autouse=True)
+def fail_fast_llm(monkeypatch):
+    """Unpatched LLM calls raise instantly instead of paying a ~2s TCP
+    connection timeout against the dead local port."""
+    import httpx
+    from openai import APIConnectionError
+    import llm_client
+
+    request = httpx.Request("POST", llm_client.LLM_BASE_URL)
+
+    def _refuse(*args, **kwargs):
+        raise APIConnectionError("offline test", request=request)
+
+    monkeypatch.setattr(llm_client._client.chat.completions, "create", _refuse)
 
 SOURCE_CONTENT = ("Local 7B models need 8GB VRAM with 4-bit quantization. "
                   "Full fp16 inference requires about 14GB VRAM. "

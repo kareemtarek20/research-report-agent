@@ -9,8 +9,9 @@ failed check degrades to "unverifiable".
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
-from config import MAX_FACT_CHECKS
+from config import MAX_FACT_CHECKS, RESEARCH_WORKERS
 from graph.state import FactCheckResult, model_from_dict
 from llm_client import chat_json
 from research.evidence import normalize
@@ -54,13 +55,17 @@ def fact_check_node(state: dict) -> dict:
 
     new_checks = []
     log_lines = []
-    for e in candidates[:n]:
-        result = _check_one(e, evidence)
-        if result is None:
-            continue
-        result["claim_hash"] = _hash(e.get("claim", ""))
-        new_checks.append(result)
-        log_lines.append(f"🔍 Fact check [{result['status']}] {e.get('claim', '')[:80]}")
+    batch = candidates[:n]
+    if batch:
+        with ThreadPoolExecutor(max_workers=max(1, RESEARCH_WORKERS)) as ex:
+            results = list(ex.map(_check_one_safe, batch,
+                                  [evidence] * len(batch)))
+        for e, result in zip(batch, results):
+            if result is None:
+                continue
+            result["claim_hash"] = _hash(e.get("claim", ""))
+            new_checks.append(result)
+            log_lines.append(f"🔍 Fact check [{result['status']}] {e.get('claim', '')[:80]}")
 
     if not log_lines:
         log_lines = [f"🔍 Fact checker: {len(existing_checks)} claims already verified, "
@@ -68,6 +73,14 @@ def fact_check_node(state: dict) -> dict:
     log.info("fact_checks_new=%s total=%s", len(new_checks),
              len(existing_checks) + len(new_checks))
     return {"fact_checks": existing_checks + new_checks, "log": log_lines}
+
+
+def _check_one_safe(e: dict, all_evidence: list[dict]) -> dict | None:
+    try:
+        return _check_one(e, all_evidence)
+    except Exception as ex:
+        log.warning("fact check crashed for %r: %s", e.get("claim", "")[:60], ex)
+        return None
 
 
 def _check_one(e: dict, all_evidence: list[dict]) -> dict | None:

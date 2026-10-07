@@ -158,13 +158,13 @@ if final and final.get("report"):
                         file_name=f"research_{safe}.json", mime="application/json")
 
     # ------------------------------------------------------ detailed traces --
-    with st.expander("🧭 Research trace (action log)", collapsed=True):
+    with st.expander("🧭 Research trace (action log)"):
         for line in final.get("log", []):
             st.text(line)
         if final.get("errors"):
             st.error("Node errors (gracefully handled): " + " | ".join(final["errors"]))
 
-    with st.expander(f"🌐 Sources ({len(sources)})", collapsed=True):
+    with st.expander(f"🌐 Sources ({len(sources)})"):
         if sources:
             ordered = sorted(sources, key=lambda s: s.get("quality_score", 0),
                              reverse=True)
@@ -180,7 +180,7 @@ if final and final.get("report"):
                     f"relevance {s.get('relevance_score', 0):.2f}, "
                     f"recency {s.get('recency_score', 0):.2f}){primary}")
 
-    with st.expander(f"🧪 Evidence ({len(evidence)})", collapsed=True):
+    with st.expander(f"🧪 Evidence ({len(evidence)})"):
         for ev in evidence:
             ok = "✅" if ev.get("supported", True) else "⚠️ unsupported"
             st.markdown(f"**{ev.get('claim', '')}** · conf "
@@ -189,7 +189,7 @@ if final and final.get("report"):
             if ev.get("supporting_passage"):
                 st.caption(f"“{ev['supporting_passage'][:300]}”")
 
-    with st.expander(f"🔍 Fact checks ({len(fact_checks)})", collapsed=True):
+    with st.expander(f"🔍 Fact checks ({len(fact_checks)})"):
         for fc in fact_checks:
             icon = {"supported": "✅", "partially_supported": "🟡",
                     "contradicted": "❌", "unverifiable": "❓"}.get(
@@ -198,7 +198,7 @@ if final and final.get("report"):
                         f"{fc.get('claim', '')}")
             st.caption(fc.get("explanation", ""))
 
-    with st.expander(f"⚡ Contradictions ({len(contradictions)})", collapsed=True):
+    with st.expander(f"⚡ Contradictions ({len(contradictions)})"):
         for cdict in contradictions:
             st.markdown(f"**{cdict.get('topic', '')}** — {cdict.get('status')}")
             st.markdown(f"- Claim A [{cdict.get('source_a', '')}]: "
@@ -208,7 +208,7 @@ if final and final.get("report"):
             if cdict.get("possible_reasons"):
                 st.caption("Possible reasons: " + ", ".join(cdict["possible_reasons"]))
 
-    with st.expander(f"🕳️ Research gaps ({len(gaps)})", collapsed=True):
+    with st.expander(f"🕳️ Research gaps ({len(gaps)})"):
         for gdict in gaps:
             icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
                 gdict.get("importance", ""), "⚪")
